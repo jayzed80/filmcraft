@@ -6,13 +6,8 @@
 //! area), so compositing it in linear light gives correct anti-aliasing. Original implementation
 //! for FilmCraft (it started as the caption rasteriser).
 
-/// Vertical sub-samples per pixel row. Coverage of a near-horizontal edge is off by at most
-/// 1 / (2 SUB); with fewer samples, curve tops and bottoms step visibly (#4791).
-pub const SUB: usize = 16;
-
-/// Most a flattened curve may stray from the true outline, in pixels (at `Path::detail` 1).
-/// Coarser chords show as dents and bumps along curved edges (#4791).
-const FLATTEN_TOL: f32 = 1.0 / 32.0;
+/// Vertical sub-samples per pixel row.
+pub const SUB: usize = 5;
 
 /// A 2×3 affine transform `[a, b, c, d, e, f]`: (x, y) → (a x + c y + e, b x + d y + f).
 pub type Xform = [f32; 6];
@@ -78,8 +73,7 @@ impl Path {
     pub fn quad_to(&mut self, cx: f32, cy: f32, x: f32, y: f32) {
         let (x0, y0) = self.cur;
         let dd = ((x0 - 2.0 * cx + x).abs() + (y0 - 2.0 * cy + y).abs()).max(0.01) * self.tol();
-        // n chords stay within |d| / (4 n²) of the curve (d: second difference).
-        let n = ((dd / (4.0 * FLATTEN_TOL)).sqrt().ceil() as usize).clamp(1, 64);
+        let n = ((dd * 2.0).sqrt().ceil() as usize).clamp(1, 64);
         for i in 1..=n {
             let t = i as f32 / n as f32;
             let u = 1.0 - t;
@@ -89,9 +83,8 @@ impl Path {
     pub fn cubic_to(&mut self, c1x: f32, c1y: f32, c2x: f32, c2y: f32, x: f32, y: f32) {
         let (x0, y0) = self.cur;
         let dd =
-            ((x0 - 2.0 * c1x + c2x).abs() + (y0 - 2.0 * c1y + c2y).abs()).max((c1x - 2.0 * c2x + x).abs() + (c1y - 2.0 * c2y + y).abs()).max(0.01) * self.tol();
-        // Wang's bound: n chords stay within 3 max|d| / (4 n²) of the curve.
-        let n = ((3.0 * dd / (4.0 * FLATTEN_TOL)).sqrt().ceil() as usize).clamp(1, 96);
+            ((x0 - 2.0 * c1x + c2x).abs() + (y0 - 2.0 * c1y + c2y).abs() + (c1x - 2.0 * c2x + x).abs() + (c1y - 2.0 * c2y + y).abs()).max(0.01) * self.tol();
+        let n = ((dd * 3.0).sqrt().ceil() as usize).clamp(1, 96);
         for i in 1..=n {
             let t = i as f32 / n as f32;
             let u = 1.0 - t;
