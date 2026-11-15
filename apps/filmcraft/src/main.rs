@@ -61,7 +61,7 @@ const APP_ID: &str = "ai.storyteller.filmcraft";
 /// Setting one at runtime would replace the user's icon for as long as the app runs (#4790), so the
 /// icon is empty there, which eframe takes as "leave the icon alone".
 fn app_icon(exe: Option<&std::path::Path>) -> egui::IconData {
-    if exe.is_some_and(in_app_bundle) {
+    if false && exe.is_some_and(in_app_bundle) {
         return egui::IconData::default();
     }
     #[cfg(target_os = "macos")]
