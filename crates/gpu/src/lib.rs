@@ -62,6 +62,9 @@ struct Uploaded {
     alpha_scale: f32,
     chroma: (u32, u32),
     last_used: u64,
+    /// The render pass that last needed this upload. A pass never evicts its own uploads: every
+    /// layer of the frame it is drawing is looked up after all of them are uploaded (#4803).
+    pass: u64,
     /// The uploaded pixel buffers, kept alive while cached: the cache key is the buffer address,
     /// and a freed buffer's address can be reused by a different frame (stale texture).
     _pixels: PixelData,
@@ -84,6 +87,9 @@ pub struct GpuCompositor {
     accum_readback_buf: Option<(wgpu::Buffer, u64)>,
     uploads: HashMap<(usize, u32, u32), Uploaded>,
     clock: u64,
+    /// Bumped for each [`Self::render_plan`] call, so upload eviction keeps every texture that
+    /// call still needs (see [`Uploaded::pass`]).
+    pass: u64,
     dummy: wgpu::TextureView,
     /// The effect stage (None on devices without compute shaders or storage textures: layers
     /// with effects are then rendered on the CPU here).
@@ -426,6 +432,7 @@ impl GpuCompositor {
             accum_readback_buf: None,
             uploads: HashMap::new(),
             clock: 0,
+            pass: 0,
             dummy,
             fx,
             transition: transition::PushStage::new(device),
@@ -497,6 +504,7 @@ impl GpuCompositor {
         self.clock += 1;
         if let Some(u) = self.uploads.get_mut(&key) {
             u.last_used = self.clock;
+            u.pass = self.pass;
             return key;
         }
         let (w, h) = (f.width, f.height);
@@ -512,6 +520,7 @@ impl GpuCompositor {
                     alpha_scale: 0.0,
                     chroma: (w, h),
                     last_used: self.clock,
+                    pass: self.pass,
                     _pixels: f.data.clone(),
                 }
             }
@@ -532,6 +541,7 @@ impl GpuCompositor {
                     alpha_scale: 0.0,
                     chroma: (w, h),
                     last_used: self.clock,
+                    pass: self.pass,
                     _pixels: f.data.clone(),
                 }
             }
@@ -550,6 +560,7 @@ impl GpuCompositor {
                     alpha_scale,
                     chroma: (cw, ch),
                     last_used: self.clock,
+                    pass: self.pass,
                     _pixels: f.data.clone(),
                 }
             }
@@ -579,14 +590,17 @@ impl GpuCompositor {
                     alpha_scale,
                     chroma: (cw, ch),
                     last_used: self.clock,
+                    pass: self.pass,
                     _pixels: f.data.clone(),
                 }
             }
         };
         self.uploads.insert(key, up);
-        // keep the most recent uploads (enough for several stacked layers + playback lookahead)
+        // Keep the most recent uploads (enough for several stacked layers + playback lookahead),
+        // but never one of this pass's own: every layer of the frame is looked up after all of
+        // them are uploaded, so evicting one here would draw that layer transparent (#4803).
         if self.uploads.len() > 24 {
-            let mut v: Vec<(u64, (usize, u32, u32))> = self.uploads.iter().map(|(k, u)| (u.last_used, *k)).collect();
+            let mut v: Vec<(u64, (usize, u32, u32))> = self.uploads.iter().filter(|(_, u)| u.pass < self.pass).map(|(k, u)| (u.last_used, *k)).collect();
             v.sort_unstable();
             for (_, k) in v.into_iter().take(self.uploads.len() - 24) {
                 self.uploads.remove(&k);
@@ -734,6 +748,7 @@ impl GpuCompositor {
     }
 
     fn render_plan(&mut self, plan: &FramePlan, prep: Option<&PreparedPlan>, clear: bool, resolve: bool) -> (wgpu::TextureView, (u32, u32)) {
+        self.pass = self.pass.wrapping_add(1);
         let owned;
         let (w, h, layers): (u32, u32, &[PlanLayer]) = match plan {
             FramePlan::Layers { width, height, layers } => (*width as u32, *height as u32, layers.as_slice()),

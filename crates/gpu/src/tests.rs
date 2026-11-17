@@ -794,3 +794,28 @@ fn accumulator_readback_retires_rejected_native_map() {
         "cleanup attempted to unmap an already rejected mapping"
     );
 }
+
+/// A plan deeper than the upload cache keeps every layer (#4803): the cache may not evict a
+/// texture that the frame being drawn still needs. Each layer is one opaque 1×1 strip; with 25
+/// uploads the 25th used to evict the first strip, which then drew transparent.
+#[test]
+fn plan_deeper_than_upload_cache_keeps_every_layer() {
+    let Some((dev, q)) = device() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    let mut c = GpuCompositor::new(&dev, &q);
+    let n = 25u32;
+    let layers: Vec<PlanLayer> = (0..n)
+        .map(|i| {
+            let f = i as f32 / n as f32;
+            PlanLayer::new(Arc::new(VideoFrame::rgba_f32(1, 1, vec![f, 1.0 - f, 0.5, 1.0])), Affine::translate(i as f64, 0.0), 1.0, Blend::Normal)
+        })
+        .collect();
+    let plan = FramePlan::Layers { width: n as usize, height: 1, layers };
+    let cpu = execute_cpu(&plan).over_black_rgba8();
+    c.composite(&plan);
+    let (w, h, gpu) = c.read_output().expect("readback");
+    assert_eq!((w, h), (n, 1));
+    assert!(gpu.iter().zip(&cpu).all(|(a, b)| a.abs_diff(*b) <= 2), "GPU {gpu:?} differs from CPU {cpu:?}");
+}
