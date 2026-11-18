@@ -104,6 +104,7 @@ fn appearance() -> Vec<ParamDef> {
         co("gradient_start", "Gradient Start", [1.0, 1.0, 1.0, 1.0], A),
         co("gradient_end", "Gradient End", [0.15, 0.15, 0.15, 1.0], A),
         p("gradient_angle", "Gradient Angle", ParamKind::Angle, ParamValue::Float(0.0), true, A),
+        p("gradient_center", "Gradient Position", ParamKind::Point, ParamValue::Vec2(Vec2::ZERO), true, A),
         bo("stroke", "Stroke", false, A),
         co("stroke_color", "Stroke Color", [0.0, 0.0, 0.0, 1.0], A),
         fl("stroke_width", "Stroke Width", 4.0, (0.0, 1000.0), (0.0, 100.0), "", A),
@@ -198,6 +199,9 @@ pub struct LinearGradient {
     pub start: [f32; 4],
     pub end: [f32; 4],
     pub angle: f32,
+    /// Offset of the ramp's centre from the bounds centre, in layer pixels. The ramp keeps
+    /// spanning the bounds, so moving the centre slides it along its axis (#5019).
+    pub center: Vec2,
 }
 
 /// Fill / strokes / background / shadow of a layer (colours are sRGB-encoded straight RGBA).
@@ -448,6 +452,7 @@ pub fn eval_layer(e: &EffectInstance, t: Tick, frame: (u32, u32)) -> Option<Laye
                 start: cc(e, "gradient_start", t),
                 end: cc(e, "gradient_end", t),
                 angle: ff(e, "gradient_angle", t),
+                center: vv(e, "gradient_center", t),
             }),
             strokes,
             background,

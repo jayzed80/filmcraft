@@ -206,17 +206,25 @@ fn invert_xform(m: &Xform) -> Option<Xform> {
     Some([a, b, c, d, -(a * m[4] + c * m[5]), -(b * m[4] + d * m[5])])
 }
 
+/// Largest gradient position offset honoured, in layer pixels: far beyond any canvas, and small
+/// enough that a hostile stored value stays finite in `f32` (a non-finite offset would put NaN
+/// into the ramp).
+const MAX_GRADIENT_OFFSET: f64 = 1.0e6;
+
 /// Paint `grad` through `msk`. 0° runs left to right across `lb` in layer space; the angle is
-/// clockwise on screen and turns with `inv` (the device→layer transform).
+/// clockwise on screen and turns with `inv` (the device→layer transform). The ramp spans `lb`
+/// from its centre, then Position slides it along its axis (#5019).
 fn over_linear_gradient(px: &mut [f32], msk: &Mask, grad: &LinearGradient, lb: [f32; 4], inv: &Xform, origin: (i32, i32)) {
     if msk.w == 0 {
         return;
     }
-    let (cx, cy) = ((lb[0] + lb[2]) * 0.5, (lb[1] + lb[3]) * 0.5);
+    let (bx, by) = ((lb[0] + lb[2]) * 0.5, (lb[1] + lb[3]) * 0.5);
     let (sin, cos) = grad.angle.to_radians().sin_cos();
     let (ax, ay) = (cos, sin);
     let corners = [(lb[0], lb[1]), (lb[2], lb[1]), (lb[0], lb[3]), (lb[2], lb[3])];
-    let half = corners.iter().map(|(x, y)| ((x - cx) * ax + (y - cy) * ay).abs()).fold(1e-3_f32, f32::max);
+    let half = corners.iter().map(|(x, y)| ((x - bx) * ax + (y - by) * ay).abs()).fold(1e-3_f32, f32::max);
+    let offset = |v: f64| if v.is_finite() { v.clamp(-MAX_GRADIENT_OFFSET, MAX_GRADIENT_OFFSET) as f32 } else { 0.0 };
+    let (cx, cy) = (bx + offset(grad.center.x), by + offset(grad.center.y));
     let w = msk.w;
     let (start, end) = (grad.start, grad.end);
     px.par_chunks_mut(4 * w).enumerate().for_each(|(row, dest)| {

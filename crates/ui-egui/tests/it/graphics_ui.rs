@@ -155,6 +155,35 @@ fn type_tool_edit_style_and_move() {
     d.shot("shape-layer");
 }
 
+/// #5019: a linear gradient has a Position in the Properties panel, so its ramp can be moved off
+/// the layer's centre instead of only turned by Angle.
+#[test]
+fn gradient_position_moves_the_ramp_from_the_properties_panel() {
+    let mut d = Driver::demo();
+    d.ok("ui.set", json!({"workspace": "Captions and Graphics"}));
+    let clip = d.exec("graphics.newShape", json!({"shape": "rectangle", "position": [800, 500], "size": [500, 300]}))["clip"].as_u64().unwrap();
+    d.exec("graphics.set", json!({"clip": clip, "layer": 0, "props": {"fill_kind": "linear gradient"}}));
+    d.exec("graphics.selectLayer", json!({"clip": clip, "layers": [0]}));
+    d.frames(4);
+    assert_eq!(shape_param(&mut d, clip, "gradient_center"), Some(filmcraft_project::ParamValue::Vec2(filmcraft_geom::Vec2::ZERO)));
+    let r = d.rect("graphics.prop.gradient_center.x");
+    d.ok(
+        "ui.drag",
+        json!({"from": {"x": r[0] + r[2] / 2.0, "y": r[1] + r[3] / 2.0}, "to": {"x": r[0] + r[2] / 2.0 + 60.0, "y": r[1] + r[3] / 2.0}, "steps": 6}),
+    );
+    d.frames(3);
+    let Some(filmcraft_project::ParamValue::Vec2(v)) = shape_param(&mut d, clip, "gradient_center") else { panic!("no gradient position") };
+    assert!(v.x > 0.0 && v.y == 0.0, "the X field moves the gradient along the ramp: {v:?}");
+    let r = d.rect("graphics.prop.gradient_center.y");
+    d.ok(
+        "ui.drag",
+        json!({"from": {"x": r[0] + r[2] / 2.0, "y": r[1] + r[3] / 2.0}, "to": {"x": r[0] + r[2] / 2.0 + 40.0, "y": r[1] + r[3] / 2.0}, "steps": 6}),
+    );
+    d.frames(3);
+    let Some(filmcraft_project::ParamValue::Vec2(w)) = shape_param(&mut d, clip, "gradient_center") else { panic!("no gradient position") };
+    assert!(w.y > 0.0 && w.x == v.x, "the Y field has its own value: {w:?}");
+}
+
 /// Properties-panel choice and stroke-width accessible names follow the interface language, while
 /// the automation ids and the values shown stay those of the property.
 #[test]
@@ -247,6 +276,14 @@ fn text_param(d: &mut Driver, clip: u64, param: &str) -> Option<filmcraft_projec
     let s = &d.harness.state().session;
     let (_, it) = s.active_sequence()?.find_item(filmcraft_project::ClipId(clip))?;
     let e = it.effects.iter().find(|e| e.effect == "graphic_text")?;
+    Some(e.param(param)?.value_at(filmcraft_time::Tick::ZERO))
+}
+
+/// The value of `param` on the shape layer of graphic clip `clip`, at its first frame.
+fn shape_param(d: &mut Driver, clip: u64, param: &str) -> Option<filmcraft_project::ParamValue> {
+    let s = &d.harness.state().session;
+    let (_, it) = s.active_sequence()?.find_item(filmcraft_project::ClipId(clip))?;
+    let e = it.effects.iter().find(|e| e.effect == "graphic_shape")?;
     Some(e.param(param)?.value_at(filmcraft_time::Tick::ZERO))
 }
 

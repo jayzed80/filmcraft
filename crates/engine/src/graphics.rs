@@ -204,6 +204,7 @@ fn param_id(k: &str) -> &str {
         "gradientStart" => "gradient_start",
         "gradientEnd" => "gradient_end",
         "gradientAngle" => "gradient_angle",
+        "gradientCenter" | "gradientPosition" => "gradient_center",
         "strokeColor" => "stroke_color",
         "strokeWidth" => "stroke_width",
         "backgroundColor" => "background_color",

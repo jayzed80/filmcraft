@@ -787,6 +787,7 @@ pub fn properties(app: &mut FilmcraftApp, ui: &mut egui::Ui, rect: Rect) {
                 cx.color(&mut vui, "gradient_start");
                 cx.color(&mut vui, "gradient_end");
                 cx.number(ui, tl!("   Angle"), NumberField { id: "gradient_angle", speed: 0.5, range: (-3600.0, 3600.0), decimals: 0, unit: " °" });
+                cx.point(ui, tl!("   Position"), "gradient_center");
             }
             for (on, col, w, kind, label, width_label, type_label) in [
                 ("stroke", "stroke_color", "stroke_width", "stroke_type", tl!("Stroke"), tl!("Stroke Width"), tl!("Stroke Type")),

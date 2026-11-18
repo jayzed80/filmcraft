@@ -344,6 +344,52 @@ fn linear_gradient_blends_in_linear_light_and_turns_with_the_layer() {
     assert!(bot[2] > bot[0], "and the end colour to the bottom {bot:?}");
 }
 
+/// The ramp's centre can move off the layer's bounds centre (#5019): Position slides the ramp
+/// along its axis while it keeps spanning the bounds, so the shape shows an off-centre ramp.
+#[test]
+fn linear_gradient_position_moves_the_ramp() {
+    let mut shape = new_shape_layer(0, Vec2::new(100.0, 100.0), Vec2::new(80.0, 40.0), vec![]);
+    set(&mut shape, "fill_kind", ParamValue::Choice(1));
+    set(&mut shape, "gradient_start", ParamValue::Color([0.0, 0.0, 0.0, 1.0]));
+    set(&mut shape, "gradient_end", ParamValue::Color([1.0, 1.0, 1.0, 1.0]));
+    set(&mut shape, "gradient_angle", ParamValue::Float(0.0));
+    let render = |e| {
+        let mut img = Image::new(200, 200);
+        render_graphic_layers(&[e], Tick::ZERO, (200, 200), &Affine::IDENTITY, &mut img);
+        img
+    };
+    let centred = render(shape.clone());
+    let mid = centred.get(100, 100)[0];
+    assert!(mid > 0.4 && mid < 0.6, "the ramp's midpoint is on the layer's centre, got {mid}");
+    // 40 px along the axis is half the shape's width: the midpoint lands on the left edge
+    set(&mut shape, "gradient_center", ParamValue::Vec2(Vec2::new(40.0, 0.0)));
+    let moved = render(shape.clone());
+    assert!(moved.get(100, 100)[0] < 0.1, "the moved ramp starts at the centre: {:?}", moved.get(100, 100));
+    assert!(moved.get(138, 100)[0] > 0.45, "and its midpoint is on the right edge: {:?}", moved.get(138, 100));
+    // an angle turns the axis: at 90° the ramp runs top to bottom, so Position Y moves it
+    set(&mut shape, "gradient_angle", ParamValue::Float(90.0));
+    set(&mut shape, "gradient_center", ParamValue::Vec2(Vec2::new(0.0, 20.0)));
+    let down = render(shape);
+    assert!(down.get(100, 100)[0] < 0.1, "the downward ramp starts at the centre: {:?}", down.get(100, 100));
+    assert!(down.get(100, 115)[0] > 0.3, "and runs on towards the bottom edge: {:?}", down.get(100, 115));
+}
+
+/// A stored project, a template or a script can carry any number for the gradient's position; a
+/// non-finite or huge one must not put NaN in the picture.
+#[test]
+fn a_hostile_gradient_position_keeps_the_ramp_finite() {
+    let mut shape = new_shape_layer(0, Vec2::new(100.0, 100.0), Vec2::new(80.0, 40.0), vec![]);
+    set(&mut shape, "fill_kind", ParamValue::Choice(1));
+    // a right angle makes the other axis' cosine tiny, where infinity × 0 would be NaN
+    set(&mut shape, "gradient_angle", ParamValue::Float(90.0));
+    for c in [Vec2::new(f64::NAN, 0.0), Vec2::new(f64::INFINITY, f64::NEG_INFINITY), Vec2::new(1e300, -1e300)] {
+        set(&mut shape, "gradient_center", ParamValue::Vec2(c));
+        let mut img = Image::new(200, 200);
+        render_graphic_layers(&[shape.clone()], Tick::ZERO, (200, 200), &Affine::IDENTITY, &mut img);
+        assert!(img.px.iter().all(|v| v.is_finite()), "{c:?} keeps the ramp finite");
+    }
+}
+
 #[test]
 fn linear_gradient_keeps_a_per_character_fill_solid() {
     use filmcraft_project::graphic_design::{CharStyle, LayerExtra, StyleRun};

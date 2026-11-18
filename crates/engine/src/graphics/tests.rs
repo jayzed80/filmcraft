@@ -296,6 +296,18 @@ fn linear_gradient_fill_sets_and_evaluates() {
     assert_eq!(g.start[0], 1.0);
     assert!(g.start[1] < 0.01 && g.end[2] > 0.9 && g.end[0] < 0.01, "{g:?}");
     assert_eq!(g.angle, 0.0);
+    // #5019: Position moves the ramp off the layer's bounds centre; the friendly names and the
+    // parameter id all reach it.
+    let centre = |s: &Session| -> Option<filmcraft_geom::Vec2> {
+        let q = s.active_sequence().unwrap();
+        let (_, it) = q.find_item(clip).unwrap();
+        it.effects.iter().find(|e| e.effect == "graphic_shape")?.param("gradient_center")?.value.as_vec2()
+    };
+    assert_eq!(centre(&s), Some(filmcraft_geom::Vec2::ZERO), "a gradient starts on the layer's centre");
+    s.execute("graphics.set", json!({"clip": clip.0, "props": {"gradientPosition": [12, -8]}})).unwrap();
+    assert_eq!(centre(&s), Some(filmcraft_geom::Vec2::new(12.0, -8.0)));
+    s.execute("graphics.set", json!({"clip": clip.0, "props": {"gradientCenter": [3, 4]}})).unwrap();
+    assert_eq!(centre(&s), Some(filmcraft_geom::Vec2::new(3.0, 4.0)));
     s.execute("graphics.set", json!({"clip": clip.0, "props": {"fill_kind": "solid"}})).unwrap();
     assert!(layers(&s, clip)[0].appearance.gradient.is_none());
 }
