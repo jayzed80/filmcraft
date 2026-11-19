@@ -716,6 +716,15 @@ fn src_of(dur: Tick, speed: f64) -> Tick {
     Tick((dur.0 as f64 * speed.abs()).round() as i64)
 }
 
+/// The source out point a clip would have after its duration grows by `ext`, as `source_out`
+/// computes it. That rounds the whole duration, so checking `src_of(ext)` alone can be a tick
+/// short and let a candidate pass the media end (#4812).
+fn source_out_after(it: &TrackItem, ext: Tick) -> Tick {
+    let duration = Tick(it.duration.0.saturating_add(ext.0));
+    let consumed = Tick((duration.0 as f64 * it.speed.abs()).round() as i64);
+    Tick(it.source_in.0.saturating_add(consumed.0))
+}
+
 /// The frame boundary one frame before `t`, which must be one.
 fn frame_before(rate: FrameRate, t: Tick) -> Tick {
     rate.tick_of(rate.frame_at(t).saturating_sub(1))
@@ -764,12 +773,17 @@ pub fn clamp_trim(seq: &Sequence, clip: ClipId, edge: Edge, mode: TrimMode, delt
                     let rate = seq.settings.frame_rate;
                     let limit = Tick(it.start.0.saturating_sub(ext.0));
                     // the division can land a tick past a whole frame, so a boundary the media still
-                    // reaches is kept instead of being rounded away (#4812)
+                    // reaches is kept instead of being rounded away. A reversed clip's In edge grows
+                    // the duration, so its source out point rounds the whole duration and is compared
+                    // with the media itself (#4812)
+                    let fits = |ext: Tick| -> bool {
+                        if it.reverse && it.frame_hold.is_none() { media.is_some_and(|m| source_out_after(it, ext) <= m) } else { src_of(ext, speed) <= handle }
+                    };
                     let mut first = rate.snap(limit);
                     let before = frame_before(rate, first);
-                    if src_of(Tick(it.start.0.saturating_sub(before.0)), speed) <= handle {
+                    if fits(Tick(it.start.0.saturating_sub(before.0))) {
                         first = before;
-                    } else if src_of(Tick(it.start.0.saturating_sub(first.0)), speed) > handle {
+                    } else if !fits(Tick(it.start.0.saturating_sub(first.0))) {
                         first = frame_after(rate, first);
                     }
                     Tick(it.start.0.saturating_sub(first.0)).max(Tick::ZERO)
@@ -804,10 +818,18 @@ pub fn clamp_trim(seq: &Sequence, clip: ClipId, edge: Edge, mode: TrimMode, delt
                     let end = it.end();
                     let rate = seq.settings.frame_rate;
                     let mut last = rate.snap(Tick(end.0.saturating_add(ext.0)));
-                    // the division can land a tick short of a whole frame, so a boundary the media
-                    // still reaches is kept instead of being rounded away (#4812)
                     let after = frame_after(rate, last);
-                    if src_of(Tick(after.0.saturating_sub(end.0)), speed) <= remain {
+                    let ext = Tick(after.0.saturating_sub(end.0));
+                    // the division can land a tick short of a whole frame, so the next boundary is
+                    // kept when it still fits. A reversed clip's Out edge moves source_in by exactly
+                    // src_of(ext); the other direction grows the duration, so its source out point
+                    // rounds the whole duration and must be compared with the media itself (#4812)
+                    let within = if it.reverse && it.frame_hold.is_none() {
+                        src_of(ext, speed) <= remain
+                    } else {
+                        media.is_some_and(|m| source_out_after(it, ext) <= m)
+                    };
+                    if within {
                         last = after;
                     }
                     Tick(last.0.saturating_sub(end.0)).max(Tick::ZERO)

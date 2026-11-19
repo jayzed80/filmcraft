@@ -654,6 +654,50 @@ fn a_trim_to_the_media_end_keeps_a_frame_the_media_exactly_reaches() {
 }
 
 #[test]
+fn a_trim_to_the_media_end_does_not_round_the_source_out_past_it() {
+    // 5 timeline frames at 25/43 speed consume 30_767_441_860 media ticks. The media leaves
+    // 6_153_488_372 ticks, which is one frame of source rounded down by a tick, but the source out
+    // point rounds the whole duration: one more frame lands one tick past the media (#4812).
+    let mut fx = Fx::new();
+    let v1 = fx.v(0);
+    let a = fx.put(v1, 0, 5, 0);
+    {
+        let it = fx.seq.find_item_mut(a).unwrap().1;
+        it.speed = 25.0 / 43.0;
+        it.source_in = Tick(10_547_079_069_768);
+    }
+    let mut n = fx.next;
+    let d = trim(&mut fx.seq, a, Edge::Out, TrimMode::Ripple, f(100), &mut Fx::ctx(&mut n)).unwrap();
+    assert_eq!(d, Tick::ZERO);
+    let it = fx.seq.find_item(a).unwrap().1;
+    assert_eq!(it.duration, f(5));
+    assert!(it.source_out() <= f(1000), "the Out point passes the media end: {:?}", it.source_out());
+    fx.seq.check().unwrap();
+}
+
+#[test]
+fn a_reversed_trim_to_the_media_end_does_not_round_the_source_out_past_it() {
+    // a reversed clip's In edge grows the duration, so its source out point rounds the whole
+    // duration too and can pass the media by a tick (#4812)
+    let mut fx = Fx::new();
+    let v1 = fx.v(0);
+    let c = fx.put(v1, 200, 5, 0);
+    {
+        let it = fx.seq.find_item_mut(c).unwrap().1;
+        it.reverse = true;
+        it.speed = 25.0 / 43.0;
+        it.source_in = Tick(10_547_079_069_768);
+    }
+    let mut n = fx.next;
+    let d = trim(&mut fx.seq, c, Edge::In, TrimMode::Ripple, -f(100), &mut Fx::ctx(&mut n)).unwrap();
+    assert_eq!(d, Tick::ZERO);
+    let it = fx.seq.find_item(c).unwrap().1;
+    assert_eq!(it.duration, f(5));
+    assert!(it.source_out() <= f(1000), "the source out point passes the media end: {:?}", it.source_out());
+    fx.seq.check().unwrap();
+}
+
+#[test]
 fn ripple_trim_group_takes_a_split_edit_along() {
     // V1: a [0,10) then b [10,20). b's linked sound leads it by 4 on sync-locked A1: [6,20).
     let mut fx = Fx::new();
